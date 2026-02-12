@@ -9,8 +9,8 @@ use ratatui::{
     backend::Backend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph},
+    text::Span,
+    widgets::{Bar, BarChart, BarGroup, Paragraph},
     Frame, Terminal,
 };
 use unicode_width::UnicodeWidthChar;
@@ -126,7 +126,7 @@ where
 }
 
 const HEADER_HEIGHT: u16 = 1;
-const ROW_HEIGHT: u16 = 4;
+const ROW_HEIGHT: u16 = 1;
 
 fn render_process_table(frame: &mut Frame, rect: Rect, state: &UIState) {
     if rect.height < HEADER_HEIGHT + 1 {
@@ -255,50 +255,73 @@ fn render_process_row(
         columns[4],
     );
 
-    render_chart(frame, columns[5], &row.download_history, Color::Cyan);
-    render_chart(frame, columns[6], &row.upload_history, Color::Magenta);
+    render_bar_chart(frame, columns[5], &row.download_history, Color::Cyan);
+    render_bar_chart(frame, columns[6], &row.upload_history, Color::Magenta);
 }
 
-fn render_chart(frame: &mut Frame, rect: Rect, history: &VecDeque<f64>, color: Color) {
-    let (data, max_x, max_y) = history_to_points(history);
-    let dataset = Dataset::default()
-        .graph_type(GraphType::Line)
-        .style(Style::default().fg(color))
-        .data(&data);
+fn render_bar_chart(frame: &mut Frame, rect: Rect, history: &VecDeque<f64>, color: Color) {
+    if rect.width == 0 || rect.height == 0 {
+        return;
+    }
 
-    let chart = Chart::new(vec![dataset])
-        .x_axis(
-            Axis::default()
-                .bounds([0.0, max_x])
-                .labels(Vec::<Line>::new()),
-        )
-        .y_axis(
-            Axis::default()
-                .bounds([0.0, max_y])
-                .labels(Vec::<Line>::new()),
-        )
-        .block(Block::default().borders(Borders::NONE));
+    let (bars, max_value) = history_to_bars(history);
+    if bars.is_empty() {
+        return;
+    }
+
+    let group = BarGroup::default().bars(&bars);
+    let chart = BarChart::default()
+        .bar_width(1)
+        .bar_gap(0)
+        .group_gap(0)
+        .bar_style(Style::default().fg(color))
+        .max(max_value)
+        .data(group);
 
     frame.render_widget(chart, rect);
 }
 
-fn history_to_points(history: &VecDeque<f64>) -> (Vec<(f64, f64)>, f64, f64) {
+fn history_to_bars(history: &VecDeque<f64>) -> (Vec<Bar<'static>>, u64) {
+    const CHART_HEADROOM: f64 = 1.1;
+    const CHART_MAX_TICKS: u64 = 8;
+
     if history.is_empty() {
-        return (vec![(0.0, 0.0), (1.0, 0.0)], 1.0, 1.0);
+        return (Vec::new(), CHART_MAX_TICKS);
     }
-    let mut max_y = 1.0;
-    let points = history
+
+    let mut max_value = 0.0_f64;
+    let values = history
         .iter()
-        .enumerate()
-        .map(|(i, value)| {
-            if *value > max_y {
-                max_y = *value;
+        .map(|value| {
+            let value = if *value > u64::MAX as f64 {
+                u64::MAX as f64
+            } else {
+                *value
+            };
+            if value > max_value {
+                max_value = value;
             }
-            (i as f64, *value)
+            value
         })
         .collect::<Vec<_>>();
-    let max_x = (points.len().saturating_sub(1)) as f64;
-    (points, max_x.max(1.0), max_y)
+
+    let scale_max = if max_value <= 0.0 {
+        1.0
+    } else {
+        max_value * CHART_HEADROOM
+    };
+
+    let bars = values
+        .into_iter()
+        .map(|value| {
+            let ratio = (value / scale_max).clamp(0.0, 1.0);
+            let ticks =
+                ((ratio * (CHART_MAX_TICKS as f64 - 1.0)).ceil() as u64).clamp(1, CHART_MAX_TICKS);
+            Bar::default().value(ticks).text_value(String::new())
+        })
+        .collect();
+
+    (bars, CHART_MAX_TICKS)
 }
 
 fn split_columns(rect: Rect) -> Vec<Rect> {
