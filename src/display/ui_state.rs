@@ -12,7 +12,7 @@ use crate::{
     os::ProcessInfo,
 };
 
-static HISTORY_LENGTH: usize = 40;
+static HISTORY_LENGTH: usize = 100;
 static MAX_BANDWIDTH_ITEMS: usize = 1000;
 
 #[derive(Clone, Default)]
@@ -115,6 +115,7 @@ impl UIState {
         for (proc_info, data) in &processes {
             updated_processes.insert(proc_info.clone());
             let history = self.process_history.entry(proc_info.clone()).or_default();
+            ensure_full_history(history);
             history.total_bytes_downloaded += data.total_bytes_downloaded;
             history.total_bytes_uploaded += data.total_bytes_uploaded;
             history
@@ -128,6 +129,7 @@ impl UIState {
 
         for (proc_info, history) in self.process_history.iter_mut() {
             if !updated_processes.contains(proc_info) {
+                ensure_full_history(history);
                 history.download_history.push_back(0.0);
                 history.upload_history.push_back(0.0);
                 trim_history(history);
@@ -165,6 +167,15 @@ fn trim_history(history: &mut ProcessHistory) {
     }
     while history.upload_history.len() > HISTORY_LENGTH {
         history.upload_history.pop_front();
+    }
+}
+
+fn ensure_full_history(history: &mut ProcessHistory) {
+    while history.download_history.len() < HISTORY_LENGTH {
+        history.download_history.push_front(0.0);
+    }
+    while history.upload_history.len() < HISTORY_LENGTH {
+        history.upload_history.push_front(0.0);
     }
 }
 

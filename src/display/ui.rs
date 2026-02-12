@@ -325,7 +325,7 @@ fn history_to_bars(
     }
 
     let mut max_value = 0.0_f64;
-    let values = sample_history(history, target_len)
+    let values = fixed_history_window(history, target_len)
         .into_iter()
         .map(|value| {
             let value = if value > u64::MAX as f64 {
@@ -404,25 +404,23 @@ fn color_to_rgb(color: Color) -> (u8, u8, u8) {
     }
 }
 
-fn sample_history(history: &VecDeque<f64>, target_len: usize) -> Vec<f64> {
+fn fixed_history_window(history: &VecDeque<f64>, target_len: usize) -> Vec<f64> {
     if target_len == 0 {
         return Vec::new();
     }
     let history_len = history.len();
-    if history_len == 0 {
-        return vec![0.0; target_len];
-    }
-    if target_len == 1 {
-        return vec![*history.back().unwrap_or(&0.0)];
+    if history_len >= target_len {
+        return history
+            .iter()
+            .skip(history_len - target_len)
+            .copied()
+            .collect();
     }
 
-    let last_index = history_len.saturating_sub(1);
-    (0..target_len)
-        .map(|i| {
-            let idx = (i * last_index) / (target_len - 1);
-            history.get(idx).copied().unwrap_or(0.0)
-        })
-        .collect()
+    let mut out = Vec::with_capacity(target_len);
+    out.extend(std::iter::repeat(0.0).take(target_len - history_len));
+    out.extend(history.iter().copied());
+    out
 }
 
 fn split_columns(rect: Rect) -> Vec<Rect> {
