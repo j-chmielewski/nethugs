@@ -151,9 +151,7 @@ impl UIState {
             })
             .collect::<Vec<_>>();
 
-        rows.sort_by_key(|row| {
-            cmp::Reverse(row.current_bytes_downloaded + row.current_bytes_uploaded)
-        });
+        rows.sort_by_key(|row| cmp::Reverse(row.total_bytes_downloaded));
         if rows.len() > MAX_BANDWIDTH_ITEMS {
             rows.truncate(MAX_BANDWIDTH_ITEMS);
         }
