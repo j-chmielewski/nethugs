@@ -1,15 +1,24 @@
-use std::{collections::HashMap, net::IpAddr, time::Duration};
+use std::{
+    collections::{HashMap, VecDeque},
+    net::IpAddr,
+    time::Duration,
+};
 
 use chrono::prelude::*;
-use ratatui::{backend::Backend, Terminal};
+use ratatui::{
+    backend::Backend,
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph},
+    Frame, Terminal,
+};
+use unicode_width::UnicodeWidthChar;
 
 use crate::{
-    cli::{Opt, RenderOpts},
-    display::{
-        components::{HeaderDetails, HelpText, Layout, Table},
-        UIState,
-    },
-    network::{display_connection_string, display_ip_or_host, LocalSocket, Utilization},
+    cli::Opt,
+    display::{components::HeaderDetails, DisplayBandwidth, UIState},
+    network::{LocalSocket, Utilization},
     os::ProcessInfo,
 };
 
@@ -19,8 +28,6 @@ where
 {
     terminal: Terminal<B>,
     state: UIState,
-    ip_to_host: HashMap<IpAddr, String>,
-    opts: RenderOpts,
 }
 
 impl<B> Ui<B>
@@ -35,65 +42,26 @@ where
             let mut state = UIState::default();
             state.interface_name.clone_from(&opts.interface);
             state.unit_family = opts.render_opts.unit_family.into();
-            state.cumulative_mode = opts.render_opts.total_utilization;
-            state.show_dns = opts.show_dns;
             state
         };
-        Ui {
-            terminal,
-            state,
-            ip_to_host: Default::default(),
-            opts: opts.render_opts,
-        }
+        Ui { terminal, state }
     }
     pub fn output_text(&mut self, write_to_stdout: &mut (dyn FnMut(&str) + Send)) {
         let state = &self.state;
-        let ip_to_host = &self.ip_to_host;
         let local_time: DateTime<Local> = Local::now();
         let timestamp = local_time.timestamp();
         let mut no_traffic = true;
 
         let output_process_data = |write_to_stdout: &mut (dyn FnMut(&str) + Send),
                                    no_traffic: &mut bool| {
-            for (proc_info, process_network_data) in &state.processes {
+            for row in &state.process_rows {
                 write_to_stdout(&format!(
-                    "process: <{timestamp}> \"{}\" up/down Bps: {}/{} connections: {}",
-                    proc_info.name,
-                    process_network_data.total_bytes_uploaded,
-                    process_network_data.total_bytes_downloaded,
-                    process_network_data.connection_count
-                ));
-                *no_traffic = false;
-            }
-        };
-
-        let output_connections_data =
-            |write_to_stdout: &mut (dyn FnMut(&str) + Send), no_traffic: &mut bool| {
-                for (connection, connection_network_data) in &state.connections {
-                    write_to_stdout(&format!(
-                        "connection: <{timestamp}> {} up/down Bps: {}/{} process: \"{}\"",
-                        display_connection_string(
-                            connection,
-                            ip_to_host,
-                            &connection_network_data.interface_name,
-                        ),
-                        connection_network_data.total_bytes_uploaded,
-                        connection_network_data.total_bytes_downloaded,
-                        connection_network_data.process_name
-                    ));
-                    *no_traffic = false;
-                }
-            };
-
-        let output_adressess_data = |write_to_stdout: &mut (dyn FnMut(&str) + Send),
-                                     no_traffic: &mut bool| {
-            for (remote_address, remote_address_network_data) in &state.remote_addresses {
-                write_to_stdout(&format!(
-                    "remote_address: <{timestamp}> {} up/down Bps: {}/{} connections: {}",
-                    display_ip_or_host(*remote_address, ip_to_host),
-                    remote_address_network_data.total_bytes_uploaded,
-                    remote_address_network_data.total_bytes_downloaded,
-                    remote_address_network_data.connection_count
+                    "process: <{timestamp}> \"{}\" down/up Bps: {}/{} total down/up B: {}/{}",
+                    row.process.name,
+                    row.current_bytes_downloaded,
+                    row.current_bytes_uploaded,
+                    row.total_bytes_downloaded,
+                    row.total_bytes_uploaded
                 ));
                 *no_traffic = false;
             }
@@ -102,21 +70,7 @@ where
         // header
         write_to_stdout("Refreshing:");
 
-        // body1
-        if self.opts.processes {
-            output_process_data(write_to_stdout, &mut no_traffic);
-        }
-        if self.opts.connections {
-            output_connections_data(write_to_stdout, &mut no_traffic);
-        }
-        if self.opts.addresses {
-            output_adressess_data(write_to_stdout, &mut no_traffic);
-        }
-        if !(self.opts.processes || self.opts.connections || self.opts.addresses) {
-            output_process_data(write_to_stdout, &mut no_traffic);
-            output_connections_data(write_to_stdout, &mut no_traffic);
-            output_adressess_data(write_to_stdout, &mut no_traffic);
-        }
+        output_process_data(write_to_stdout, &mut no_traffic);
 
         // body2: In case no traffic is detected
         if no_traffic {
@@ -127,54 +81,34 @@ where
         write_to_stdout("");
     }
 
-    pub fn draw(&mut self, paused: bool, elapsed_time: Duration, table_cycle_offset: usize) {
-        let layout = Layout {
-            header: HeaderDetails {
-                state: &self.state,
-                elapsed_time,
-                paused,
-            },
-            children: self.get_tables_to_display(),
-            footer: HelpText {
-                paused,
-                show_dns: self.state.show_dns,
-            },
-        };
+    pub fn draw(&mut self, paused: bool, elapsed_time: Duration, _table_cycle_offset: usize) {
         self.terminal
-            .draw(|frame| layout.render(frame, frame.area(), table_cycle_offset))
+            .draw(|frame| {
+                let area = frame.area();
+                let layout = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([
+                        Constraint::Length(1),
+                        Constraint::Min(1),
+                        Constraint::Length(1),
+                    ])
+                    .split(area);
+
+                let header = HeaderDetails {
+                    state: &self.state,
+                    elapsed_time,
+                    paused,
+                };
+                header.render(frame, layout[0]);
+
+                render_process_table(frame, layout[1], &self.state);
+                render_footer(frame, layout[2], paused);
+            })
             .unwrap();
     }
 
-    fn get_tables_to_display(&self) -> Vec<Table> {
-        let opts = &self.opts;
-        let mut children: Vec<Table> = Vec::new();
-        if opts.processes {
-            children.push(Table::create_processes_table(&self.state));
-        }
-        if opts.addresses {
-            children.push(Table::create_remote_addresses_table(
-                &self.state,
-                &self.ip_to_host,
-            ));
-        }
-        if opts.connections {
-            children.push(Table::create_connections_table(
-                &self.state,
-                &self.ip_to_host,
-            ));
-        }
-        if !(opts.processes || opts.addresses || opts.connections) {
-            children = vec![
-                Table::create_processes_table(&self.state),
-                Table::create_remote_addresses_table(&self.state, &self.ip_to_host),
-                Table::create_connections_table(&self.state, &self.ip_to_host),
-            ];
-        }
-        children
-    }
-
     pub fn get_table_count(&self) -> usize {
-        self.get_tables_to_display().len()
+        1
     }
 
     pub fn update_state(
@@ -184,9 +118,231 @@ where
         ip_to_host: HashMap<IpAddr, String>,
     ) {
         self.state.update(connections_to_procs, utilization);
-        self.ip_to_host.extend(ip_to_host);
+        let _ = ip_to_host;
     }
     pub fn end(&mut self) {
         self.terminal.show_cursor().unwrap();
     }
+}
+
+const HEADER_HEIGHT: u16 = 1;
+const ROW_HEIGHT: u16 = 4;
+
+fn render_process_table(frame: &mut Frame, rect: Rect, state: &UIState) {
+    if rect.height < HEADER_HEIGHT + 1 {
+        return;
+    }
+
+    let header_rect = Rect {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: HEADER_HEIGHT,
+    };
+    render_table_header(frame, header_rect);
+
+    let body_rect = Rect {
+        x: rect.x,
+        y: rect.y + HEADER_HEIGHT,
+        width: rect.width,
+        height: rect.height.saturating_sub(HEADER_HEIGHT),
+    };
+
+    let row_slots = body_rect.height / ROW_HEIGHT;
+    if row_slots == 0 {
+        return;
+    }
+
+    if state.process_rows.is_empty() {
+        let empty = Paragraph::new("No traffic yet")
+            .style(Style::default().fg(Color::Gray))
+            .alignment(Alignment::Center);
+        frame.render_widget(empty, body_rect);
+        return;
+    }
+
+    for (index, row) in state
+        .process_rows
+        .iter()
+        .take(row_slots as usize)
+        .enumerate()
+    {
+        let row_rect = Rect {
+            x: body_rect.x,
+            y: body_rect.y + (index as u16 * ROW_HEIGHT),
+            width: body_rect.width,
+            height: ROW_HEIGHT,
+        };
+        render_process_row(frame, row_rect, row, state.unit_family);
+    }
+}
+
+fn render_table_header(frame: &mut Frame, rect: Rect) {
+    let columns = split_columns(rect);
+    let headers = [
+        "Process",
+        "Down/s",
+        "Up/s",
+        "Total Down",
+        "Total Up",
+        "Down Chart",
+        "Up Chart",
+    ];
+
+    for (col, title) in columns.into_iter().zip(headers) {
+        let header = Paragraph::new(Span::styled(
+            title,
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ));
+        frame.render_widget(header, col);
+    }
+}
+
+fn render_process_row(
+    frame: &mut Frame,
+    rect: Rect,
+    row: &crate::display::ProcessRow,
+    unit_family: crate::display::BandwidthUnitFamily,
+) {
+    let columns = split_columns(rect);
+    let name = truncate_to_width(&row.process.name, columns[0].width);
+    let down_rate = format!(
+        "{}/s",
+        DisplayBandwidth {
+            bandwidth: row.current_bytes_downloaded as f64,
+            unit_family,
+        }
+    );
+    let up_rate = format!(
+        "{}/s",
+        DisplayBandwidth {
+            bandwidth: row.current_bytes_uploaded as f64,
+            unit_family,
+        }
+    );
+    let total_down = format!(
+        "{}",
+        DisplayBandwidth {
+            bandwidth: row.total_bytes_downloaded as f64,
+            unit_family,
+        }
+    );
+    let total_up = format!(
+        "{}",
+        DisplayBandwidth {
+            bandwidth: row.total_bytes_uploaded as f64,
+            unit_family,
+        }
+    );
+
+    frame.render_widget(Paragraph::new(name), columns[0]);
+    frame.render_widget(
+        Paragraph::new(down_rate).alignment(Alignment::Right),
+        columns[1],
+    );
+    frame.render_widget(
+        Paragraph::new(up_rate).alignment(Alignment::Right),
+        columns[2],
+    );
+    frame.render_widget(
+        Paragraph::new(total_down).alignment(Alignment::Right),
+        columns[3],
+    );
+    frame.render_widget(
+        Paragraph::new(total_up).alignment(Alignment::Right),
+        columns[4],
+    );
+
+    render_chart(frame, columns[5], &row.download_history, Color::Cyan);
+    render_chart(frame, columns[6], &row.upload_history, Color::Magenta);
+}
+
+fn render_chart(frame: &mut Frame, rect: Rect, history: &VecDeque<f64>, color: Color) {
+    let (data, max_x, max_y) = history_to_points(history);
+    let dataset = Dataset::default()
+        .graph_type(GraphType::Line)
+        .style(Style::default().fg(color))
+        .data(&data);
+
+    let chart = Chart::new(vec![dataset])
+        .x_axis(
+            Axis::default()
+                .bounds([0.0, max_x])
+                .labels(Vec::<Line>::new()),
+        )
+        .y_axis(
+            Axis::default()
+                .bounds([0.0, max_y])
+                .labels(Vec::<Line>::new()),
+        )
+        .block(Block::default().borders(Borders::NONE));
+
+    frame.render_widget(chart, rect);
+}
+
+fn history_to_points(history: &VecDeque<f64>) -> (Vec<(f64, f64)>, f64, f64) {
+    if history.is_empty() {
+        return (vec![(0.0, 0.0), (1.0, 0.0)], 1.0, 1.0);
+    }
+    let mut max_y = 1.0;
+    let points = history
+        .iter()
+        .enumerate()
+        .map(|(i, value)| {
+            if *value > max_y {
+                max_y = *value;
+            }
+            (i as f64, *value)
+        })
+        .collect::<Vec<_>>();
+    let max_x = (points.len().saturating_sub(1)) as f64;
+    (points, max_x.max(1.0), max_y)
+}
+
+fn split_columns(rect: Rect) -> Vec<Rect> {
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(24),
+            Constraint::Length(12),
+            Constraint::Length(12),
+            Constraint::Length(12),
+            Constraint::Length(12),
+            Constraint::Min(10),
+            Constraint::Min(10),
+        ])
+        .split(rect)
+        .to_vec()
+}
+
+fn truncate_to_width(text: &str, max_width: u16) -> String {
+    if max_width == 0 {
+        return String::new();
+    }
+    let mut width = 0;
+    let mut out = String::new();
+    for ch in text.chars() {
+        let ch_width = ch.width().unwrap_or(0) as u16;
+        if width + ch_width > max_width {
+            break;
+        }
+        width += ch_width;
+        out.push(ch);
+    }
+    out
+}
+
+fn render_footer(frame: &mut Frame, rect: Rect, paused: bool) {
+    let status = if paused { "Paused" } else { "Live" };
+    let content = format!("{status} | Press <SPACE> to toggle | Press <Q> to quit");
+    let footer = Paragraph::new(content)
+        .style(
+            Style::default()
+                .fg(Color::Gray)
+                .add_modifier(Modifier::BOLD),
+        )
+        .alignment(Alignment::Left);
+    frame.render_widget(footer, rect);
 }

@@ -51,9 +51,8 @@ impl HeaderDetails<'_> {
 
         // do not render time in tests, otherwise the output becomes non-deterministic
         // see: https://github.com/imsnif/bandwhich/issues/303
-        if cfg!(not(test)) && self.state.cumulative_mode {
+        if cfg!(not(test)) {
             let elapsed_time = format_duration(self.elapsed_time);
-            // only render if there is enough width
             if bandwidth.width() + 1 + elapsed_time.width() <= rect.width as usize {
                 self.render_elapsed_time(frame, rect, &elapsed_time, color);
             }
@@ -74,11 +73,7 @@ impl HeaderDetails<'_> {
 
     fn bandwidth_string(&self) -> String {
         let intrf = self.state.interface_name.as_deref().unwrap_or("all");
-        let t = if self.state.cumulative_mode {
-            "Data"
-        } else {
-            "Rate"
-        };
+        let t = "Data";
         let unit_family = self.state.unit_family;
         let up = DisplayBandwidth {
             bandwidth: self.state.total_bytes_uploaded as f64,
