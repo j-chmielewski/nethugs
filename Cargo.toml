@@ -42,6 +42,7 @@ simplelog = "0.12.2"
 thiserror = "2.0.12"
 unicode-width = "0.2.0"
 strum = { version = "0.27.1", features = ["derive"] }
+insta = "1.46.3"
 
 
 [target.'cfg(any(target_os = "android", target_os = "linux"))'.dependencies]
