@@ -132,39 +132,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
-name = "bandwhich"
-version = "0.23.1"
-dependencies = [
- "async-trait",
- "chrono",
- "clap",
- "clap-verbosity-flag",
- "clap_complete",
- "clap_mangen",
- "crossterm 0.29.0",
- "ctrlc",
- "derive_more",
- "eyre",
- "http_req",
- "insta",
- "itertools 0.14.0",
- "log",
- "netstat2",
- "once_cell",
- "pnet",
- "pnet_macros_support",
- "procfs",
- "ratatui",
- "regex",
- "simplelog",
- "strum 0.27.1",
- "sysinfo",
- "thiserror 2.0.12",
- "unicode-width 0.2.0",
- "zip",
-]
-
-[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1128,6 +1095,39 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "tempfile",
+]
+
+[[package]]
+name = "nethugs"
+version = "0.23.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "clap",
+ "clap-verbosity-flag",
+ "clap_complete",
+ "clap_mangen",
+ "crossterm 0.29.0",
+ "ctrlc",
+ "derive_more",
+ "eyre",
+ "http_req",
+ "insta",
+ "itertools 0.14.0",
+ "log",
+ "netstat2",
+ "once_cell",
+ "pnet",
+ "pnet_macros_support",
+ "procfs",
+ "ratatui",
+ "regex",
+ "simplelog",
+ "strum 0.27.1",
+ "sysinfo",
+ "thiserror 2.0.12",
+ "unicode-width 0.2.0",
+ "zip",
 ]
 
 [[package]]

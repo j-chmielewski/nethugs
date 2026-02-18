@@ -1,5 +1,5 @@
 [package]
-name = "bandwhich"
+name = "nethugs"
 version = "0.23.1"
 authors = [
   "Aram Drevekenin <aram@poor.dev>",
