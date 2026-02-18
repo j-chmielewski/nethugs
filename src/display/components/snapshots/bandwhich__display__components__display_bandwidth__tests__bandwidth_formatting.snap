@@ -1,5 +1,6 @@
 ---
 source: src/display/components/display_bandwidth.rs
+assertion_line: 127
 expression: test_bandwidths_formatted
 ---
 DisplayBandwidth { bandwidth: 1.5625000000e-2, unit_family: BinBytes }: 0.02B

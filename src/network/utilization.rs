@@ -4,7 +4,6 @@ use crate::network::{Connection, Direction, Segment};
 
 #[derive(Clone)]
 pub struct ConnectionInfo {
-    pub interface_name: String,
     pub total_bytes_downloaded: u128,
     pub total_bytes_uploaded: u128,
 }
@@ -29,7 +28,6 @@ impl Utilization {
             .connections
             .entry(seg.connection)
             .or_insert(ConnectionInfo {
-                interface_name: seg.interface_name,
                 total_bytes_downloaded: 0,
                 total_bytes_uploaded: 0,
             });

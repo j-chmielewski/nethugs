@@ -1,5 +1,4 @@
 mod connection;
-pub mod dns;
 mod sniffer;
 mod utilization;
 

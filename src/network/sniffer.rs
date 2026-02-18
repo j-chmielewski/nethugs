@@ -29,7 +29,6 @@ const CHANNEL_RESET_DELAY: Duration = Duration::from_millis(1000);
 
 #[derive(Debug)]
 pub struct Segment {
-    pub interface_name: String,
     pub connection: Connection,
     pub direction: Direction,
     pub data_length: u128,
@@ -93,19 +92,16 @@ macro_rules! extract_transport_protocol {
 pub struct Sniffer {
     network_interface: NetworkInterface,
     network_frames: Box<dyn DataLinkReceiver>,
-    show_dns: bool,
 }
 
 impl Sniffer {
     pub fn new(
         network_interface: NetworkInterface,
         network_frames: Box<dyn DataLinkReceiver>,
-        show_dns: bool,
     ) -> Self {
         Sniffer {
             network_interface,
             network_frames,
-            show_dns,
         }
     }
     pub fn next(&mut self) -> Option<Segment> {
@@ -138,7 +134,7 @@ impl Sniffer {
         let version = ip_packet.get_version();
 
         match version {
-            4 => Self::handle_v4(ip_packet, &self.network_interface, self.show_dns),
+            4 => Self::handle_v4(ip_packet, &self.network_interface),
             6 => Self::handle_v6(
                 Ipv6Packet::new(&bytes[payload_offset..])?,
                 &self.network_interface,
@@ -146,11 +142,9 @@ impl Sniffer {
             _ => {
                 let pkg = EthernetPacket::new(bytes)?;
                 match pkg.get_ethertype() {
-                    EtherTypes::Ipv4 => Self::handle_v4(
-                        Ipv4Packet::new(pkg.payload())?,
-                        &self.network_interface,
-                        self.show_dns,
-                    ),
+                    EtherTypes::Ipv4 => {
+                        Self::handle_v4(Ipv4Packet::new(pkg.payload())?, &self.network_interface)
+                    }
                     EtherTypes::Ipv6 => {
                         Self::handle_v6(Ipv6Packet::new(pkg.payload())?, &self.network_interface)
                     }
@@ -168,7 +162,6 @@ impl Sniffer {
         let (protocol, source_port, destination_port, data_length) =
             extract_transport_protocol!(ip_packet);
 
-        let interface_name = network_interface.name.clone();
         let direction = Direction::new(&network_interface.ips, ip_packet.get_source().into());
         let from = SocketAddr::new(ip_packet.get_source().into(), source_port);
         let to = SocketAddr::new(ip_packet.get_destination().into(), destination_port);
@@ -178,21 +171,15 @@ impl Sniffer {
             Direction::Upload => Connection::new(to, from.ip(), source_port, protocol),
         };
         Some(Segment {
-            interface_name,
             connection,
             data_length,
             direction,
         })
     }
-    fn handle_v4(
-        ip_packet: Ipv4Packet,
-        network_interface: &NetworkInterface,
-        show_dns: bool,
-    ) -> Option<Segment> {
+    fn handle_v4(ip_packet: Ipv4Packet, network_interface: &NetworkInterface) -> Option<Segment> {
         let (protocol, source_port, destination_port, data_length) =
             extract_transport_protocol!(ip_packet);
 
-        let interface_name = network_interface.name.clone();
         let direction = Direction::new(&network_interface.ips, ip_packet.get_source().into());
         let from = SocketAddr::new(ip_packet.get_source().into(), source_port);
         let to = SocketAddr::new(ip_packet.get_destination().into(), destination_port);
@@ -202,11 +189,7 @@ impl Sniffer {
             Direction::Upload => Connection::new(to, from.ip(), source_port, protocol),
         };
 
-        if !show_dns && connection.remote_socket.port == 53 {
-            return None;
-        }
         Some(Segment {
-            interface_name,
             connection,
             data_length,
             direction,

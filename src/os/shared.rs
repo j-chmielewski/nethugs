@@ -1,17 +1,14 @@
 use std::{
     io::{self, ErrorKind, Write},
-    net::Ipv4Addr,
-    time,
+    time::{self, Duration},
 };
 
-use crossterm::event::{read, Event};
+use crate::{os::errors::GetInterfaceError, OsInputOutput};
+use crossterm::event::{poll, read, Event};
 use eyre::{bail, eyre};
 use itertools::Itertools;
 use log::{debug, warn};
 use pnet::datalink::{self, Channel::Ethernet, Config, DataLinkReceiver, NetworkInterface};
-use tokio::runtime::Runtime;
-
-use crate::{network::dns, os::errors::GetInterfaceError, OsInputOutput};
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 use crate::os::linux::get_open_sockets;
@@ -35,12 +32,25 @@ impl ProcessInfo {
     }
 }
 
+/// Poll timeout for terminal events.
+/// This allows the event loop to periodically check the `running` flag
+/// for graceful shutdown on SIGINT.
+const POLL_TIMEOUT: Duration = Duration::from_millis(100);
+
 pub struct TerminalEvents;
 
 impl Iterator for TerminalEvents {
     type Item = Event;
+    /// Returns the next terminal event, or `None` if no event is available
+    /// within the poll timeout.
+    ///
+    /// Note: `None` here means "no event right now", not "iteration complete".
+    /// The consumer should use `while running` instead of `for evt in ...`.
     fn next(&mut self) -> Option<Event> {
-        read().ok()
+        match poll(POLL_TIMEOUT) {
+            Ok(true) => read().ok(),
+            Ok(false) | Err(_) => None,
+        }
     }
 }
 
@@ -92,11 +102,7 @@ fn create_write_to_stdout() -> Box<dyn FnMut(&str) + Send> {
     })
 }
 
-pub fn get_input(
-    interface_name: Option<&str>,
-    resolve: bool,
-    dns_server: Option<Ipv4Addr>,
-) -> eyre::Result<OsInputOutput> {
+pub fn get_input(interface_name: Option<&str>) -> eyre::Result<OsInputOutput> {
     // get the user's requested interface, if any
     // IDEA: allow requesting multiple interfaces
     let requested_interfaces = interface_name
@@ -192,26 +198,12 @@ pub fn get_input(
         .filter_map(|(interface, res)| res.ok().map(|frames| (interface, frames)))
         .collect();
 
-    let dns_client = if resolve {
-        let runtime = Runtime::new()?;
-        let resolver = runtime
-            .block_on(dns::Resolver::new(dns_server))
-            .map_err(|err| {
-                eyre!("Could not initialize the DNS resolver. Are you offline?\n\nReason: {err}")
-            })?;
-        let dns_client = dns::Client::new(resolver, runtime)?;
-        Some(dns_client)
-    } else {
-        None
-    };
-
     let write_to_stdout = create_write_to_stdout();
 
     Ok(OsInputOutput {
         interfaces_with_frames,
         get_open_sockets,
         terminal_events: Box::new(TerminalEvents),
-        dns_client,
         write_to_stdout,
     })
 }

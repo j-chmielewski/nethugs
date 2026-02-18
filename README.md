@@ -1,14 +1,14 @@
-# bandwhich
+# nethugs
 
-![demo](res/demo.gif)
+![preview](res/nethugs.png)
 
-This is a CLI utility for displaying current network utilization by process, connection and remote IP/hostname
+This is a CLI utility for displaying current network utilization by process with shiny graphs.
+It's a fork and light modification of the excellent [bandwhich](https://github.com/imsnif/bandwhich) project.
 
 ## Table of contents
 
-- [bandwhich](#bandwhich)
+- [nethugs](#nethugs)
   - [Table of contents](#table-of-contents)
-  - [Project status](#project-status)
   - [How does it work?](#how-does-it-work)
   - [Installation](#installation)
     - [Downstream packaging status](#downstream-packaging-status)
@@ -25,77 +25,15 @@ This is a CLI utility for displaying current network utilization by process, con
   - [Contributing](#contributing)
   - [License](#license)
 
-## Project status
-
-This project is in passive maintenance. Critical issues will be addressed, but
-no new features are being worked on. However, this is due to a lack of funding
-and/or manpower more than anything else, so pull requests are more than welcome.
-In addition, if you are able and willing to contribute to this project long-term,
-we would like to invite you to apply for co-maintainership.
-
-For more details, see [The Future of Bandwhich #275](https://github.com/imsnif/bandwhich/issues/275).
-
 ## How does it work?
 
-`bandwhich` sniffs a given network interface and records IP packet size, cross referencing it with the `/proc` filesystem on linux, `lsof` on macOS, or using WinApi on windows. It is responsive to the terminal window size, displaying less info if there is no room for it. It will also attempt to resolve ips to their host name in the background using reverse DNS on a best effort basis.
-
-## Installation
-
-### Downstream packaging status
-
-For detailed instructions for each platform, see [INSTALL.md](INSTALL.md).
-
-<a href="https://repology.org/project/bandwhich/versions">
-  <img src="https://repology.org/badge/vertical-allrepos/bandwhich.svg?columns=3" alt="Packaging status">
-</a>
-
-### Download a prebuilt binary
-
-We offer several generic binaries in [releases](https://github.com/imsnif/bandwhich/releases) for various OSes.
-
-<table>
-  <thead>
-    <th>OS</th><th>Architecture</th><th>Support</th><th>Usage</th>
-  </thead>
-  <tbody>
-    <tr>
-      <td>Android</td><td>aarch64</td><td>Best effort</td>
-      <td>
-        <p>All modern Android devices.</p>
-        <p>Note that this is a pure binary file, not an APK suitable for general usage.</p>
-      </td>
-    </tr>
-    <tr>
-      <td rowspan="3">Linux</td><td>aarch64</td><td>Full</td>
-      <td>64-bit ARMv8+ (servers, some modern routers, RPi-4+).</td>
-    </tr>
-    <tr>
-      <td>armv7hf</td><td>Best effort</td><td>32-bit ARMv7 (older routers, pre-RPi-4).</td>
-    </tr>
-    <tr>
-      <td>x64</td><td>Full</td>
-      <td>Most Linux desktops & servers.</td>
-    </tr>
-    <tr>
-      <td rowspan="2">MacOS</td><td>aarch64</td><td rowspan="2">Full</td>
-      <td>Apple silicon Macs (2021+).</td>
-    </tr>
-    <tr>
-      <td>x64</td>
-      <td>Intel Macs (pre-2021).</td>
-    </tr>
-    <tr>
-      <td>Windows</td><td>x64</td><td>Full</td>
-      <td>Most Windows desktops & servers.</td>
-    </tr>
-  </tbody>
-</table>
+`nethugs` sniffs a given network interface and records IP packet size, cross referencing it with the `/proc` filesystem on linux, `lsof` on macOS, or using WinApi on windows. It is responsive to the terminal window size, displaying less info if there is no room for it. It will also attempt to resolve ips to their host name in the background using reverse DNS on a best effort basis.
 
 ## Building from source
 
 ```sh
-git clone https://github.com/imsnif/bandwhich.git
-cd bandwhich
+git clone https://github.com/j-chmielewski/nethugs.git
+cd nethugs
 cargo build --release
 ```
 
@@ -121,25 +59,25 @@ cross build --release --target aarch64-linux-android
 
 ## Post install (Linux)
 
-Since `bandwhich` sniffs network packets, it requires elevated privileges.
+Since `nethugs` sniffs network packets, it requires elevated privileges.
 On Linux, there are two main ways to accomplish this:
 
 ### 1. `setcap`
 
-- Permanently allow the `bandwhich` binary its required privileges (called "capabilities" in Linux).
-- Do this if you want to give all unprivileged users full access to bandwhich's monitoring capabilities.
+- Permanently allow the `nethugs` binary its required privileges (called "capabilities" in Linux).
+- Do this if you want to give all unprivileged users full access to nethugs' monitoring capabilities.
     - This is the **recommended** setup **for single user machines**, or **if all users are trusted**.
     - This is **not recommended** if you want to **ensure users cannot see others' traffic**.
 
 ```sh
 # assign capabilities
-sudo setcap cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin+ep $(command -v bandwhich)
+sudo setcap cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin+ep $(command -v nethugs)
 # run as unprivileged user
-bandwhich
+nethugs
 ```
 
 #### Capabilities explained
-- `cap_sys_ptrace,cap_dac_read_search`: allow access to `/proc/<pid>/fd/`, so that `bandwhich` can determine which open port belongs to which process.
+- `cap_sys_ptrace,cap_dac_read_search`: allow access to `/proc/<pid>/fd/`, so that `nethugs` can determine which open port belongs to which process.
 - `cap_net_raw,cap_net_admin`: allow capturing packets on your system.
 
 ### 2. `sudo` (or alternative)
@@ -148,18 +86,18 @@ bandwhich
 - Do this if you are an administrator of a multi-user environment.
 
 ```sh
-sudo bandwhich
+sudo nethugs
 ```
 
-Note that if your installation method installed `bandwhich` to somewhere in
-your home directory (you can check with `command -v bandwhich`), you may get a
+Note that if your installation method installed `nethugs` to somewhere in
+your home directory (you can check with `command -v nethugs`), you may get a
 `command not found` error. This is because in many distributions, `sudo` by
 default does not keep your user's `$PATH` for safety concerns.
 
 To overcome this, you can do any one of the following:
 1. [make `sudo` preserve your `$PATH` environment variable](https://unix.stackexchange.com/q/83191/375550);
-2. explicitly set `$PATH` while running `bandwhich`: `sudo env "PATH=$PATH" bandwhich`;
-3. pass the full path to `sudo`: `sudo $(command -v bandwhich)`.
+2. explicitly set `$PATH` while running `nethugs`: `sudo env "PATH=$PATH" nethugs`;
+3. pass the full path to `sudo`: `sudo $(command -v nethugs)`.
 
 ## Post install (Windows)
 
@@ -168,7 +106,7 @@ You might need to first install [npcap](https://npcap.com/#download) for capturi
 ## Usage
 
 ```
-Usage: bandwhich [OPTIONS]
+Usage: nethugs [OPTIONS]
 
 Options:
   -i, --interface <INTERFACE>      The network interface to listen on, eg. eth0

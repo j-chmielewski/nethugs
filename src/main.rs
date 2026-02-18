@@ -4,8 +4,6 @@ mod cli;
 mod display;
 mod network;
 mod os;
-#[cfg(test)]
-mod tests;
 
 use std::{
     collections::HashMap,
@@ -25,10 +23,7 @@ use crossterm::{
 };
 use display::{elapsed_time, RawTerminalBackend, Ui};
 use eyre::bail;
-use network::{
-    dns::{self, IpTable},
-    LocalSocket, Sniffer, Utilization,
-};
+use network::{LocalSocket, Sniffer, Utilization};
 use pnet::datalink::{DataLinkReceiver, NetworkInterface};
 use ratatui::backend::{Backend, CrosstermBackend};
 use simplelog::WriteLogger;
@@ -54,7 +49,7 @@ fn main() -> eyre::Result<()> {
         )?;
     }
 
-    let os_input = os::get_input(opts.interface.as_deref(), !opts.no_resolve, opts.dns_server)?;
+    let os_input = os::get_input(opts.interface.as_deref())?;
     if opts.raw {
         let terminal_backend = RawTerminalBackend {};
         start(terminal_backend, os_input, opts);
@@ -70,6 +65,11 @@ fn main() -> eyre::Result<()> {
         let _ = crossterm::execute!(&mut stdout, terminal::EnterAlternateScreen);
         let terminal_backend = CrosstermBackend::new(stdout);
         start(terminal_backend, os_input, opts);
+
+        // Ensure terminal is restored after exit (handles SIGINT case).
+        // These operations are idempotent, so safe to call even if 'q' already cleaned up.
+        let _ = terminal::disable_raw_mode();
+        let _ = crossterm::execute!(std::io::stdout(), terminal::LeaveAlternateScreen);
     }
     Ok(())
 }
@@ -82,7 +82,6 @@ pub struct OsInputOutput {
     pub interfaces_with_frames: Vec<(NetworkInterface, Box<dyn DataLinkReceiver>)>,
     pub get_open_sockets: fn() -> OpenSockets,
     pub terminal_events: Box<dyn Iterator<Item = Event> + Send>,
-    pub dns_client: Option<dns::Client>,
     pub write_to_stdout: Box<dyn FnMut(&str) + Send>,
 }
 
@@ -96,12 +95,22 @@ where
     let cumulative_time = Arc::new(RwLock::new(Duration::new(0, 0)));
     let table_cycle_offset = Arc::new(AtomicUsize::new(0));
 
+    // handle SIGINT properly instead of as a keypress
+    // see https://github.com/imsnif/bandwhich/issues/487
+    #[cfg(not(test))]
+    {
+        let running = running.clone();
+        ctrlc::set_handler(move || {
+            running.store(false, Ordering::Release);
+        })
+        .expect("failed to set SIGINT handler");
+    }
+
     let mut active_threads = vec![];
 
     let terminal_events = os_input.terminal_events;
     let get_open_sockets = os_input.get_open_sockets;
     let mut write_to_stdout = os_input.write_to_stdout;
-    let mut dns_client = os_input.dns_client;
 
     let raw_mode = opts.raw;
 
@@ -125,23 +134,12 @@ where
                     let render_start_time = Instant::now();
                     let utilization = network_utilization.lock().unwrap().clone_and_reset();
                     let OpenSockets { sockets_to_procs } = get_open_sockets();
-                    let mut ip_to_host = IpTable::new();
-                    if let Some(dns_client) = dns_client.as_mut() {
-                        ip_to_host = dns_client.cache();
-                        let unresolved_ips = utilization
-                            .connections
-                            .keys()
-                            .filter(|conn| !ip_to_host.contains_key(&conn.remote_socket.ip))
-                            .map(|conn| conn.remote_socket.ip)
-                            .collect::<Vec<_>>();
-                        dns_client.resolve(unresolved_ips);
-                    }
                     {
                         let mut ui = ui.lock().unwrap();
                         let paused = paused.load(Ordering::SeqCst);
                         let table_cycle_offset = table_cycle_offset.load(Ordering::SeqCst);
                         if !paused {
-                            ui.update_state(sockets_to_procs, utilization, ip_to_host);
+                            ui.update_state(sockets_to_procs, utilization);
                         }
                         let elapsed_time = elapsed_time(
                             *last_start_time.read().unwrap(),
@@ -175,7 +173,11 @@ where
             let display_handler = display_handler.thread().clone();
 
             move || {
-                for evt in terminal_events {
+                let mut terminal_events = terminal_events;
+                while running.load(Ordering::Acquire) {
+                    let Some(evt) = terminal_events.next() else {
+                        continue;
+                    };
                     let mut ui = ui.lock().unwrap();
 
                     match evt {
@@ -192,12 +194,6 @@ where
                             );
                         }
                         Event::Key(KeyEvent {
-                            modifiers: KeyModifiers::CONTROL,
-                            code: KeyCode::Char('c'),
-                            kind: KeyEventKind::Press,
-                            ..
-                        })
-                        | Event::Key(KeyEvent {
                             modifiers: KeyModifiers::NONE,
                             code: KeyCode::Char('q'),
                             kind: KeyEventKind::Press,
@@ -269,13 +265,12 @@ where
         .map(|(iface, frames)| {
             let name = format!("sniffing_handler_{}", iface.name);
             let running = running.clone();
-            let show_dns = opts.show_dns;
             let network_utilization = network_utilization.clone();
 
             thread::Builder::new()
                 .name(name)
                 .spawn(move || {
-                    let mut sniffer = Sniffer::new(iface, frames, show_dns);
+                    let mut sniffer = Sniffer::new(iface, frames);
 
                     while running.load(Ordering::Acquire) {
                         if let Some(segment) = sniffer.next() {

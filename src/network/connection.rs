@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     fmt,
     net::{IpAddr, SocketAddr},
 };
@@ -77,27 +76,6 @@ impl fmt::Debug for Connection {
         } = self;
         write!(f, "{local_socket:?} => {remote_socket:?}")
     }
-}
-
-pub fn display_ip_or_host(ip: IpAddr, ip_to_host: &HashMap<IpAddr, String>) -> String {
-    match ip_to_host.get(&ip) {
-        Some(host) => host.clone(),
-        None => ip.to_string(),
-    }
-}
-
-pub fn display_connection_string(
-    connection: &Connection,
-    ip_to_host: &HashMap<IpAddr, String>,
-    interface_name: &str,
-) -> String {
-    format!(
-        "<{interface_name}>:{} => {}:{} ({})",
-        connection.local_socket.port,
-        display_ip_or_host(connection.remote_socket.ip, ip_to_host),
-        connection.remote_socket.port,
-        connection.local_socket.protocol,
-    )
 }
 
 impl Connection {
