@@ -3,6 +3,7 @@
 ![preview](res/nethugs.png)
 
 This is a CLI utility for displaying current network utilization by process with shiny graphs.
+
 It's a fork and light modification of the excellent [bandwhich](https://github.com/imsnif/bandwhich) project.
 
 ## Table of contents
