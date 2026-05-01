@@ -124,7 +124,7 @@ jobs:
         # It's too much of a hassle to set up sccache in cross.
         # See https://github.com/cross-rs/cross/wiki/Recipes#sccache.
         if: matrix.cargo == 'cargo'
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.10
 
       - name: Install cross
         if: matrix.cargo == 'cross'
@@ -182,14 +182,14 @@ jobs:
 
       - name: Upload snapshots of failed tests
         if: ${{ failure() && steps.run_tests.outcome == 'failure' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.os }}-${{ matrix.rust }}-failed_snapshots
           path: '**/*.snap.new'
 
       - name: Upload binaries
         if: ${{ success() || steps.build.outcome == 'success' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}-${{ matrix.rust }}
           path: |
